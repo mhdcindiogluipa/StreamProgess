@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="StreamProgess.Client/StreamProgess.Client.csproj" />
+  <Project Path="StreamProgess/StreamProgess.csproj" />
+</Solution>
