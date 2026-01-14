@@ -1,0 +1,189 @@
+@page "/progress"
+@using StreamProgess.Shared
+@inject HttpClient Http
+@rendermode InteractiveWebAssembly
+
+<PageTitle>Progress Reporting</PageTitle>
+
+<h1>Server ? Client Progress Reporting</h1>
+
+<div class="card mt-4">
+    <div class="card-body">
+        <h5 class="card-title">Stream Progress Demo</h5>
+        
+        <div class="mb-3">
+            <button class="btn btn-primary me-2" @onclick="StartStreamProgress" disabled="@isStreaming">
+                <span class="bi bi-play-fill"></span> Start Simple Progress
+            </button>
+            
+            <button class="btn btn-success me-2" @onclick="StartLongOperation" disabled="@isStreaming">
+                <span class="bi bi-hourglass-split"></span> Start Long Operation
+            </button>
+            
+            <button class="btn btn-danger" @onclick="CancelOperation" disabled="@(!isStreaming)">
+                <span class="bi bi-stop-fill"></span> Cancel
+            </button>
+        </div>
+
+        @if (isStreaming)
+        {
+            <div class="progress mb-3" style="height: 30px;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                     role="progressbar" 
+                     style="width: @(currentProgress)%"
+                     aria-valuenow="@currentProgress" 
+                     aria-valuemin="0" 
+                     aria-valuemax="100">
+                    @currentProgress%
+                </div>
+            </div>
+
+            <div class="alert alert-info">
+                <strong>Status:</strong> @currentMessage
+            </div>
+        }
+
+        @if (isCompleted)
+        {
+            <div class="alert alert-success">
+                <span class="bi bi-check-circle-fill"></span> Operation completed successfully!
+            </div>
+        }
+
+        @if (isCancelled)
+        {
+            <div class="alert alert-warning">
+                <span class="bi bi-exclamation-triangle-fill"></span> Operation cancelled.
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger">
+                <strong>Error:</strong> @errorMessage
+            </div>
+        }
+
+        @if (progressLog.Any())
+        {
+            <h6 class="mt-4">Progress Log:</h6>
+            <div class="log-container">
+                @foreach (var log in progressLog)
+                {
+                    <div class="log-entry">
+                        <span class="badge bg-secondary">@log.Timestamp.ToString("HH:mm:ss.fff")</span>
+                        <span class="badge bg-primary">@log.Percentage%</span>
+                        <span>@log.Message</span>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .log-container {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 10px;
+        background-color: #f8f9fa;
+    }
+
+    .log-entry {
+        padding: 5px 0;
+        border-bottom: 1px solid #e0e0e0;
+    }
+
+    .log-entry:last-child {
+        border-bottom: none;
+    }
+
+    .log-entry .badge {
+        margin-right: 8px;
+    }
+</style>
+
+@code {
+    private bool isStreaming = false;
+    private bool isCompleted = false;
+    private bool isCancelled = false;
+    private int currentProgress = 0;
+    private string currentMessage = string.Empty;
+    private string errorMessage = string.Empty;
+    private List<ProgressUpdate> progressLog = new();
+    private CancellationTokenSource? cancellationTokenSource;
+
+    private async Task StartStreamProgress()
+    {
+        await StreamFromEndpoint("/api/progress/stream");
+    }
+
+    private async Task StartLongOperation()
+    {
+        await StreamFromEndpoint("/api/progress/long-operation");
+    }
+
+    private async Task StreamFromEndpoint(string endpoint)
+    {
+        ResetState();
+        isStreaming = true;
+        cancellationTokenSource = new CancellationTokenSource();
+
+        try
+        {
+            await foreach (var update in Http.GetFromJsonAsAsyncEnumerable<ProgressUpdate>(
+                endpoint, 
+                cancellationTokenSource.Token))
+            {
+                if (update != null)
+                {
+                    currentProgress = update.Percentage;
+                    currentMessage = update.Message;
+                    progressLog.Add(update);
+                    
+                    StateHasChanged();
+                }
+            }
+
+            isCompleted = true;
+            currentMessage = "All operations completed!";
+        }
+        catch (OperationCanceledException)
+        {
+            isCancelled = true;
+            currentMessage = "Operation was cancelled by user.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"An error occurred: {ex.Message}";
+        }
+        finally
+        {
+            isStreaming = false;
+            cancellationTokenSource?.Dispose();
+            cancellationTokenSource = null;
+        }
+    }
+
+    private void CancelOperation()
+    {
+        cancellationTokenSource?.Cancel();
+    }
+
+    private void ResetState()
+    {
+        isCompleted = false;
+        isCancelled = false;
+        currentProgress = 0;
+        currentMessage = string.Empty;
+        errorMessage = string.Empty;
+        progressLog.Clear();
+    }
+
+    public void Dispose()
+    {
+        cancellationTokenSource?.Dispose();
+    }
+}
